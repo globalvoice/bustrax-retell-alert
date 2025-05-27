@@ -16,7 +16,6 @@ def format_number(phone: str) -> str:
     """Ensure phone has +<COUNTRY_CODE> prefix."""
     p = phone.strip().replace(" ", "").replace("-", "")
     if not p.startswith("+"):
-        # if it doesn’t already start with the country code, prepend it
         if not p.startswith(COUNTRY_CODE):
             p = COUNTRY_CODE.lstrip("+") + p.lstrip("0")
         p = "+" + p
@@ -47,8 +46,8 @@ def should_trigger_alarm(item: dict) -> bool:
 
 def check_and_alert() -> dict:
     """
-    Polls Bustrax, checks each record for red-alarm conditions,
-    and if any fire a Retell outbound call.
+    Poll Bustrax, check each record for red-alarm conditions,
+    and if any, fire a Retell outbound call.
     Returns a summary dict.
     """
     summary = {"checked": 0, "triggered": 0, "errors": []}
@@ -61,7 +60,6 @@ def check_and_alert() -> dict:
         for item in data:
             summary["checked"] += 1
             if should_trigger_alarm(item):
-                # format phone and call Retell
                 to_number   = format_number(item["cellphone"])
                 driver_name = item.get("driver_name", "")
                 try:
@@ -91,9 +89,12 @@ async def trigger_alarm():
 if __name__ == "__main__":
     # legacy script mode: run every CHECK_INTERVAL seconds
     while True:
-        print("⏱️  Running check_and_alert() …")
+        print("Running check_and_alert() …")
         summary = check_and_alert()
-        print(f"   → checked={summary['checked']}, triggered={summary['triggered']}")
+        print(
+            f"checked={summary['checked']}, "
+            f"triggered={summary['triggered']}"
+        )
         if summary["errors"]:
-            print("   ❗ errors:", summary["errors"])
+            print("errors:", summary["errors"])
         time.sleep(CHECK_INTERVAL)
