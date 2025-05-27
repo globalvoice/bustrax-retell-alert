@@ -1,5 +1,8 @@
 import time
 import os
+from fastapi import FastAPI
+app = FastAPI()
+
 from bustrax_client import get_bustrax_token, get_route_tracking
 from retell_client import make_retell_call
 
