@@ -1,9 +1,13 @@
-# Bustrax Retell Alert System
+# Bustrax-Retell Alert System
 
-- Calls Bustrax API for driver alerts.
-- If 3+ red alerts, calls driver using Retell AI.
-- Edit `.env` with your API keys.
+Polls Bustrax for trip/alert info and triggers Retell outbound calls for red alarms.
 
-## Endpoints
+## Environment Variables
 
-- POST `/check-alerts` — checks alerts and triggers call if needed.
+See `.env.example` for all required variables. Copy to `.env` and update for your deployment.
+
+## How to run
+
+1. Install requirements: `pip install -r requirements.txt`
+2. Create `.env` with your settings.
+3. Run: `python main.py`
