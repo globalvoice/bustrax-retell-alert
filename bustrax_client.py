@@ -10,7 +10,7 @@ TRACK_URL = os.getenv("BUSTRAX_TRACK_URL")    # e.g. https://api.bustrax.io/engi
 async def get_bustrax_token() -> str:
     """
     Call the Bustrax login endpoint, split the CSV-style response,
-    and return the third element (the real token).
+    and return the long token (4th element).
     """
     params = {
         "action": "login",
@@ -21,12 +21,12 @@ async def get_bustrax_token() -> str:
     async with httpx.AsyncClient() as client:
         r = await client.get(AUTH_URL, params=params)
         r.raise_for_status()
-        text = r.text.strip()
-        parts = text.split(",")
-        if len(parts) < 3:
-            raise Exception(f"Unexpected auth response: {text!r}")
-        return parts[2]
-
+        parts = r.text.strip().split(",")
+        if len(parts) < 4:
+            raise Exception(f"Unexpected auth response: {r.text!r}")
+        # parts[0]=success, [1]=traxion, [2]=TRAXION, [3]=LONG_TOKEN, [4]=c3418...
+        token = parts[3].strip()
+        return token
 
 async def get_route_tracking(token: str) -> dict:
     """
