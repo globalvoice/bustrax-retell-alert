@@ -1,35 +1,34 @@
+import time
 import os
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from bustrax_client import get_driver_alerts
-from retell_client import call_driver
-from utils import format_number
+from bustrax_client import get_bustrax_token, get_route_tracking
+from retell_client import make_retell_call
 
-app = FastAPI()
+COUNTRY_CODE = os.getenv("COUNTRY_CODE", "52")
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
 
-API_KEY = os.getenv("BUSTRAX_API_KEY")
-RETELL_API_KEY = os.getenv("RETELL_API_KEY")
-RETELL_FROM_NUMBER = os.getenv("RETELL_FROM_NUMBER")
-RETELL_AGENT_ID = os.getenv("RETELL_AGENT_ID")
+def format_number(phone):
+    # Ensures phone has country code
+    phone = phone.strip()
+    if not phone.startswith("+"):
+        if not phone.startswith(COUNTRY_CODE):
+            phone = COUNTRY_CODE + phone
+        phone = "+" + phone
+    return phone
 
-@app.post("/check-alerts")
-async def check_alerts(request: Request):
-    try:
-        alerts = get_driver_alerts(API_KEY)
-        # Example: look for 3 red alarms in the alerts
-        red_alarms = [a for a in alerts if a["color"] == "red"]
-        if len(red_alarms) >= 3:
-            driver = red_alarms[0]["driver"]  # Get the driver to call
-            phone = format_number(driver["cellphone"])
-            call_driver(
-                api_key=RETELL_API_KEY,
-                from_number=RETELL_FROM_NUMBER,
-                to_number=phone,
-                agent_id=RETELL_AGENT_ID,
-                driver_name=driver["name"]
-            )
-            return {"status": "Outbound call triggered", "driver": driver}
-        else:
-            return {"status": "No action", "alert_count": len(red_alarms)}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+def check_and_alert():
+    token = get_bustrax_token()
+    tracking = get_route_tracking(token)
+    # Example, adjust keys as per actual response
+    for alarm in tracking.get("data", []):
+        # Example: check for alarm condition; adjust to your schema
+        if alarm.get("status") in ["ALERTA_ROJA_1", "ALERTA_ROJA_2", "ALERTA_ROJA_3"]:
+            phone = format_number(alarm["cellphone"])
+            make_retell_call(phone, alarm["driver_name"])
+
+if __name__ == "__main__":
+    while True:
+        try:
+            check_and_alert()
+        except Exception as e:
+            print(f"Error: {e}")
+        time.sleep(CHECK_INTERVAL)
