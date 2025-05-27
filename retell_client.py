@@ -1,15 +1,20 @@
+import os
 import requests
 
-def call_driver(api_key, from_number, to_number, agent_id, driver_name):
+RETELL_API_KEY = os.getenv("RETELL_API_KEY")
+RETELL_FROM_NUMBER = os.getenv("RETELL_FROM_NUMBER")
+
+def make_retell_call(to_number, driver_name):
     url = "https://api.retellai.com/v2/create-phone-call"
-    headers = {"Authorization": f"Bearer {api_key}"}
-    data = {
-        "from_number": from_number,
+    headers = {"Authorization": f"Bearer {RETELL_API_KEY}"}
+    payload = {
+        "from_number": RETELL_FROM_NUMBER,
         "to_number": to_number,
         "call_type": "phone_call",
-        "override_agent_id": agent_id,
-        "retell_llm_dynamic_variables": {"driver_name": driver_name}
+        "retell_llm_dynamic_variables": {
+            "driver_name": driver_name
+        }
     }
-    resp = requests.post(url, headers=headers, json=data)
+    resp = requests.post(url, json=payload, headers=headers)
     resp.raise_for_status()
     return resp.json()
