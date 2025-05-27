@@ -1,38 +1,48 @@
+# bustrax_client.py
 import os
-import requests
+import httpx
 
-LOGIN_URL = os.getenv("BUSTRAX_LOGIN_URL")
-API_URL = os.getenv("BUSTRAX_API_URL")
 USERNAME = os.getenv("BUSTRAX_USERNAME")
 PASSWORD = os.getenv("BUSTRAX_PASSWORD")
-VER = os.getenv("BUSTRAX_VER", "1.0.1")
-BUNIT = os.getenv("BUSTRAX_BUNIT")
-ANTICIPATION_MINUTES = os.getenv("BUSTRAX_ANTICIPATION_MINUTES", "45")
+AUTH_URL = os.getenv("BUSTRAX_AUTH_URL")      # e.g. https://w2.bustrax.io/wp-admin/ajax-auth.php
+TRACK_URL = os.getenv("BUSTRAX_TRACK_URL")    # e.g. https://api.bustrax.io/engine/get_json.php
 
-def get_bustrax_token():
-    resp = requests.post(
-        LOGIN_URL,
-        data={
-            "username": USERNAME,
-            "password": PASSWORD,
-            "version": "2.0"
-        }
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    # Get token from 3rd position as per doc
-    token = data["data"][2]["api_key"]
-    return token
+async def get_bustrax_token() -> str:
+    """
+    Call the Bustrax login endpoint, split the CSV-style response,
+    and return the third element (the real token).
+    """
+    params = {
+        "action": "login",
+        "username": USERNAME,
+        "password": PASSWORD,
+        "version": "2.0",
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.get(AUTH_URL, params=params)
+        r.raise_for_status()
+        text = r.text.strip()
+        parts = text.split(",")
+        if len(parts) < 3:
+            raise Exception(f"Unexpected auth response: {text!r}")
+        return parts[2]
 
-def get_route_tracking(token):
-    form = {
+
+async def get_route_tracking(token: str) -> dict:
+    """
+    Call the Bustrax route-tracking API (form-encoded).
+    Returns the parsed JSON payload.
+    """
+    data = {
         "data[iuser]": USERNAME,
         "data[bttkn]": token,
-        "data[ver]": VER,
-        "data[bunit]": BUNIT,
-        "data[anticipation_minutes]": ANTICIPATION_MINUTES,
-        "type": "get_route_tracking"
+        "data[ver]": "1.0.1",
+        "data[bunit]": os.getenv("BUSTRAX_BUSINESS_UNIT", "lip_vdm"),
+        "data[anticipation_minutes]": "45",
+        "data[after_trip_minutes]": "15",
+        "type": "get_route_tracking",
     }
-    resp = requests.post(API_URL, data=form)
-    resp.raise_for_status()
-    return resp.json()
+    async with httpx.AsyncClient() as client:
+        r = await client.post(TRACK_URL, data=data)
+        r.raise_for_status()
+        return r.json()
