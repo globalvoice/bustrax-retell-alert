@@ -39,7 +39,7 @@ def mark_alarm_processed(conn, alarm_id):
                     (alarm_id, datetime.now()))
         conn.commit()
 
-# --- Retell.ai Call Function (Remains the same, but ensure it's not async unless needed) ---
+# --- Retell.ai Call Function (Remains the same for now, but needs crucial fix - see below) ---
 def format_number(number):
     # Your existing number formatting logic
     if number and len(number) == 10:
@@ -63,7 +63,7 @@ def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
         "from_number": from_number,
         "to_number": to_number,
         "agent_id": agent_id,
-        "metadata": agent_parameters # Pass dynamic data to agent via metadata
+        "metadata": agent_parameters # <--- THIS IS THE PROBLEM LINE - MUST BE CHANGED
     }
 
     try:
@@ -163,9 +163,7 @@ async def trigger_alarm(): # <-- FastAPI functions are often async
             error_status = alarm.get("error", "")
             general_status = alarm.get("status", "")
 
-            # --- NEW DEBUGGING PRINT STATEMENT ADDED HERE ---
             print(f"DEBUG: Processing trip {alarm_id}. KPI: {fin_kpi}, Error: '{error_status}', Status: '{general_status}'")
-            # --- END NEW DEBUGGING PRINT ---
 
             alarm_triggered = False
             if fin_kpi < -9:
@@ -179,7 +177,13 @@ async def trigger_alarm(): # <-- FastAPI functions are often async
                 print(f"Trigger condition met: 'Verificar' in general status ('{general_status}') for trip {alarm_id}")
 
             if alarm_triggered:
-                driver = alarm.get("driver_name", "Unknown") # Corrected key
+                driver_raw = alarm.get("driver_name") # Get the raw value first
+                # Robustly assign driver for speech
+                if not driver_raw or driver_raw.strip().lower() in ["none", "unknown", ""]:
+                    driver = "Conductor" # Default for speech if driver name is missing/unknown
+                else:
+                    driver = driver_raw
+                
                 car = alarm.get("car", "Unknown")
                 route_desc = alarm.get("rdes", "Unknown Route")
                 trip_id = alarm.get("trip", "Unknown Trip ID")
