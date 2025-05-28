@@ -9,16 +9,22 @@ from retell_client import make_retell_call
 
 app = FastAPI()
 
-# COUNTRY_CODE is now in bustrax_client.py, no need to define here
-# COUNTRY_CODE = os.getenv("COUNTRY_CODE", "52") # REMOVED
+# --- START DEBUGGING PRINTS FOR ENVIRONMENT VARIABLES ---
+# These lines will print the values of your environment variables at startup.
+RETELL_API_KEY = os.getenv("RETELL_API_KEY")
+RETELL_FROM_NUMBER = os.getenv("RETELL_FROM_NUMBER")
+RETELL_AGENT_ID = os.getenv("RETELL_AGENT_ID")
+RETELL_TEST_PHONE_NUMBER = os.getenv("RETELL_TEST_PHONE_NUMBER")
+
+print(f"DEBUG: main.py - RETELL_API_KEY (first 10 chars): {str(RETELL_API_KEY)[:10] if RETELL_API_KEY else 'None'}")
+print(f"DEBUG: main.py - RETELL_FROM_NUMBER: {RETELL_FROM_NUMBER}")
+print(f"DEBUG: main.py - RETELL_AGENT_ID: {RETELL_AGENT_ID}")
+print(f"DEBUG: main.py - RETELL_TEST_PHONE_NUMBER: {RETELL_TEST_PHONE_NUMBER}")
+# --- END DEBUGGING PRINTS ---
 
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "GlobalVoice API is running."}
-
-# The format_number function has been moved to bustrax_client.py
-# REMOVED: def format_number(phone: str) -> str:
-#             ...
 
 class TriggerResponse(BaseModel):
     checked: int
