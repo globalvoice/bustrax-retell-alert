@@ -54,7 +54,7 @@ def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
     if not api_key:
         raise ValueError("RETELL_API_KEY environment variable is not set.")
 
-    url = "https://api.retellai.com/call"
+    url = "https://api.retellai.com/v2/create-phone-call"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
