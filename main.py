@@ -63,8 +63,22 @@ def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
         "from_number": from_number,
         "to_number": to_number,
         "agent_id": agent_id,
-        "metadata": agent_parameters # <--- THIS IS THE PROBLEM LINE - MUST BE CHANGED
+        "retell_llm_dynamic_variables": agent_parameters # THIS IS THE CRITICAL CHANGE
     }
+    # Add a print statement for debugging the payload - keep this for now
+    print(f"DEBUG: Retell Payload: {payload}") # Will now show correct structure
+
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        response_data = response.json()
+        print(f"Retell.ai call initiated successfully: {response_data}")
+        return response_data
+    except requests.exceptions.RequestException as e:
+        print(f"Error initiating Retell.ai call: {e}")
+        if e.response:
+            print(f"Response content: {e.response.text}")
+        raise # Re-raise the exception after logging
 
     try:
         response = requests.post(url, headers=headers, json=payload)
