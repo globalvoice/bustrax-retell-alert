@@ -50,18 +50,28 @@ async def trigger_alarm():
         raise HTTPException(status_code=500, detail=f"Auth failed: {e}")
 
     try:
-        # 2) Fetch route-tracking data (returns a single dict based on docs)
+        # 2) Fetch route-tracking data (returns a list of dicts)
         raw_tracking_data = await get_route_tracking(token)
         print(f"Received tracking data: {raw_tracking_data}") # Log the raw data
     except Exception as e:
         print(f"Tracking failed: {e}") # Log the error
         raise HTTPException(status_code=500, detail=f"Tracking failed: {e}")
 
-    # 3) Evaluate the single alarm for "red" conditions
-    # Based on documentation, the API returns a single dictionary, not a list.
-    if isinstance(raw_tracking_data, dict):
-        checked += 1
-        alarm = raw_tracking_data # The 'raw_tracking_data' dictionary is the 'alarm' to check
+    # 3) Iterate and evaluate each alarm in the list
+    if not isinstance(raw_tracking_data, list):
+        errors.append(f"Unexpected data format from Bustrax API: Expected a list, got {type(raw_tracking_data).__name__}. Raw data: {raw_tracking_data}")
+        print(f"CRITICAL ERROR: Unexpected data format from Bustrax API: {raw_tracking_data}")
+        # If it's not a list, we can't proceed with iteration, so return early
+        return {"checked": checked, "triggered": triggered, "errors": errors}
+
+    # Iterate over each alarm dictionary in the list
+    for alarm in raw_tracking_data:
+        if not isinstance(alarm, dict):
+            errors.append(f"Unexpected item in Bustrax data list: Expected a dictionary, got {type(alarm).__name__}. Item: {alarm}")
+            print(f"WARNING: Skipping non-dictionary item in tracking data: {alarm}")
+            continue # Skip to the next item if it's not a dictionary
+
+        checked += 1 # Only increment checked if it's a valid dictionary item
 
         # Safely parse fin_kpi
         try:
@@ -99,10 +109,6 @@ async def trigger_alarm():
                     print(f"Retell call failed for {driver} ({phone}): {e}")
         else:
             print(f"No alarm for driver: {alarm.get('driver name', 'Unknown')}. Status: fin_kpi={fin_kpi_val}, error='{err_txt}', status='{status_txt}'")
-    else:
-        errors.append(f"Unexpected data format from Bustrax API: Expected a dictionary, got {type(raw_tracking_data).__name__}. Raw data: {raw_tracking_data}")
-        print(f"CRITICAL ERROR: Unexpected data format from Bustrax API: {raw_tracking_data}")
-
 
     # 5) Return summary
     return {"checked": checked, "triggered": triggered, "errors": errors}
