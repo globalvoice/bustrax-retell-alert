@@ -99,7 +99,7 @@ async def trigger_alarm():
             print(f"Alarm triggered for driver: {alarm.get('driver name', 'Unknown')}")
             # 4) Format phone and trigger Retell
             phone = format_number(alarm.get("cellphone", ""))
-            driver = alarm.get("driver name", "Unknown") # Corrected key from driver_name to "driver name"
+            driver = alarm.get("driver_name", "Unknown") # Corrected key from driver_name to "driver name"
 
             # --- FOR TESTING ONLY: OVERRIDE PHONE NUMBER ---
             # This block is correctly placed INSIDE the 'if is_red:' condition
