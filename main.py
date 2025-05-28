@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
 
+# Load environment variables for local development (Render handles them automatically)
 load_dotenv()
 
 app = FastAPI()
@@ -40,6 +41,7 @@ def mark_alarm_processed(conn, alarm_id):
 
 # --- Retell.ai Call Function (Remains the same, but ensure it's not async unless needed) ---
 def format_number(number):
+    # Your existing number formatting logic
     if number and len(number) == 10:
         return "+1" + number
     elif number and number.startswith("+"):
@@ -47,6 +49,7 @@ def format_number(number):
     return None
 
 def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
+    # Your existing Retell.ai call logic
     api_key = os.environ.get("RETELL_API_KEY")
     if not api_key:
         raise ValueError("RETELL_API_KEY environment variable is not set.")
@@ -60,12 +63,12 @@ def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
         "from_number": from_number,
         "to_number": to_number,
         "agent_id": agent_id,
-        "metadata": agent_parameters
+        "metadata": agent_parameters # Pass dynamic data to agent via metadata
     }
 
     try:
         response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
+        response.raise_for_status() # Raise an exception for bad status codes
         response_data = response.json()
         print(f"Retell.ai call initiated successfully: {response_data}")
         return response_data
@@ -73,17 +76,18 @@ def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
         print(f"Error initiating Retell.ai call: {e}")
         if e.response:
             print(f"Response content: {e.response.text}")
-        raise
+        raise # Re-raise the exception after logging
 
 
-@app.post("/trigger-alarm")
-async def trigger_alarm():
-    print("Received request to trigger alarms.")
+@app.post("/trigger-alarm") # <-- FastAPI route decorator
+async def trigger_alarm(): # <-- FastAPI functions are often async
+    print("Received request to trigger alarms.") # Use print or proper FastAPI logging
     # --- Authenticate with Bustrax API ---
     bustrax_username = os.environ.get("BUSTRAX_USERNAME")
     bustrax_password = os.environ.get("BUSTRAX_PASSWORD")
 
     if not bustrax_username or not bustrax_password:
+        # Use HTTPException for FastAPI
         raise HTTPException(status_code=500, detail="Bustrax credentials missing")
 
     auth_url = f"https://w2.bustrax.io/wp-admin/ajax-auth.php?action=login&username={bustrax_username}&password={bustrax_password}&version=2.0"
@@ -91,7 +95,7 @@ async def trigger_alarm():
         auth_response = requests.get(auth_url)
         auth_response.raise_for_status()
         auth_data = auth_response.text.split(',')
-        bustrax_token = auth_data[3].strip() # <--- CHANGED FROM auth_data[2] TO auth_data[3]
+        bustrax_token = auth_data[3].strip() # <--- This was changed from auth_data[2] to auth_data[3]
         print(f"Bustrax authentication successful. Token obtained: {bustrax_token}")
     except requests.exceptions.RequestException as e:
         print(f"Error authenticating with Bustrax: {e}")
@@ -99,7 +103,7 @@ async def trigger_alarm():
 
     # --- Fetch Route Tracking Data ---
     tracking_endpoint = "https://api.bustrax.io/engine/get_json.php"
-    bustrax_bunit = os.environ.get("BUSTRAX_BUNIT", "lip_vdm")
+    bustrax_bunit = os.environ.get("BUSTRAX_BUNIT", "lip_vdm") # Default or set as env var
 
     tracking_params = {
         "data[iuser]": bustrax_username,
@@ -145,7 +149,7 @@ async def trigger_alarm():
 
         for alarm in raw_tracking_data:
             total_potential_alarms += 1
-            alarm_id = alarm.get("trip")
+            alarm_id = alarm.get("trip") # Use 'trip' or a more unique composite key
 
             if not alarm_id:
                 print(f"Skipping alarm due to missing 'trip' ID: {alarm}")
@@ -159,6 +163,10 @@ async def trigger_alarm():
             error_status = alarm.get("error", "")
             general_status = alarm.get("status", "")
 
+            # --- NEW DEBUGGING PRINT STATEMENT ADDED HERE ---
+            print(f"DEBUG: Processing trip {alarm_id}. KPI: {fin_kpi}, Error: '{error_status}', Status: '{general_status}'")
+            # --- END NEW DEBUGGING PRINT ---
+
             alarm_triggered = False
             if fin_kpi < -9:
                 alarm_triggered = True
@@ -171,7 +179,7 @@ async def trigger_alarm():
                 print(f"Trigger condition met: 'Verificar' in general status ('{general_status}') for trip {alarm_id}")
 
             if alarm_triggered:
-                driver = alarm.get("driver_name", "Unknown")
+                driver = alarm.get("driver_name", "Unknown") # Corrected key
                 car = alarm.get("car", "Unknown")
                 route_desc = alarm.get("rdes", "Unknown Route")
                 trip_id = alarm.get("trip", "Unknown Trip ID")
