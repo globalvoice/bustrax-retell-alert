@@ -91,8 +91,8 @@ async def trigger_alarm():
         auth_response = requests.get(auth_url)
         auth_response.raise_for_status()
         auth_data = auth_response.text.split(',')
-        bustrax_token = auth_data[2].strip()
-        print(f"Bustrax authentication successful. Token obtained.")
+        bustrax_token = auth_data[3].strip() # <--- CHANGED FROM auth_data[2] TO auth_data[3]
+        print(f"Bustrax authentication successful. Token obtained: {bustrax_token}")
     except requests.exceptions.RequestException as e:
         print(f"Error authenticating with Bustrax: {e}")
         raise HTTPException(status_code=500, detail=f"Bustrax authentication failed: {e}")
@@ -115,10 +115,8 @@ async def trigger_alarm():
     try:
         tracking_response = requests.post(tracking_endpoint, data=tracking_params)
         tracking_response.raise_for_status()
-        # --- ADD THESE PRINT STATEMENTS FOR DEBUGGING ---
         print(f"Bustrax Tracking API Response Status Code: {tracking_response.status_code}")
         print(f"Bustrax Tracking API Raw Response: {tracking_response.text}")
-        # --- END DEBUGGING PRINTS ---
         raw_tracking_data = tracking_response.json()
         print(f"Successfully fetched {len(raw_tracking_data)} tracking entries.")
     except requests.exceptions.RequestException as e:
