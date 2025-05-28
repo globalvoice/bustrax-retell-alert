@@ -1,4 +1,3 @@
-# main.py
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -10,8 +9,12 @@ app = FastAPI()
 COUNTRY_CODE = os.getenv("COUNTRY_CODE", "52")
 
 
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
+
 def format_number(phone: str) -> str:
-    """Ensure the given phone has a leading +<COUNTRY_CODE>."""
     p = phone.strip()
     if not p.startswith("+"):
         if not p.startswith(COUNTRY_CODE):
@@ -32,24 +35,24 @@ async def trigger_alarm():
     triggered = 0
     errors: list[str] = []
 
-    # 1) fetch bustrax token
+    # 1) Auth
     try:
         token = await get_bustrax_token()
     except Exception as e:
         raise HTTPException(500, detail=f"Auth failed: {e}")
 
-    # 2) fetch tracking data
+    # 2) Tracking
     try:
         tracking = await get_route_tracking(token)
     except Exception as e:
         raise HTTPException(500, detail=f"Tracking failed: {e}")
 
-    # 3) loop and fire alerts
+    # 3) Check each record for “red” and dial
     for alarm in tracking.get("data", []):
         checked += 1
-        fin_kpi = alarm.get("fin_kpi", 0)
-        err_txt = alarm.get("error", "")
-        status_txt = alarm.get("status", "")
+        fin_kpi   = alarm.get("fin_kpi", 0)
+        err_txt   = alarm.get("error", "")
+        status_txt= alarm.get("status", "")
 
         is_red = (
             (isinstance(fin_kpi, (int, float)) and fin_kpi < -9)
@@ -57,7 +60,7 @@ async def trigger_alarm():
             or ("Verificar" in status_txt)
         )
         if is_red:
-            phone = format_number(alarm.get("cellphone", ""))
+            phone  = format_number(alarm.get("cellphone", ""))
             driver = alarm.get("driver_name", "Unknown")
             try:
                 await make_retell_call(to_number=phone, metadata={"driver_name": driver})
