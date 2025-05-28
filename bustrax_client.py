@@ -23,6 +23,12 @@ async def get_bustrax_token() -> str:
     }
     async with httpx.AsyncClient() as client:
         r = await client.get(AUTH_URL, params=params)
+
+        # ─── DEBUG OUTPUT ───────────────────────────────────────────────
+        print("→ Bustrax LOGIN URL:", r.url)
+        print("→ Login response text:", repr(r.text))
+        # ────────────────────────────────────────────────────────────────
+
         r.raise_for_status()
         parts = r.text.strip().split(",")
         if len(parts) < 4:
@@ -35,7 +41,7 @@ async def get_route_tracking(token: str) -> dict:
         "data[bttkn]":            token,
         "data[ver]":              "1.0.1",
         "data[bunit]":            os.getenv("BUSTRAX_BUSINESS_UNIT", "lip_vdm"),
-        "data[anticipation_minutes]": "45",
+        "data[anticipation_minutes]": os.getenv("BUSTRAx_ANTICIPATION_MINUTES", "45"),
         "data[after_trip_minutes]":     "15",
         "type": "get_route_tracking",
     }
