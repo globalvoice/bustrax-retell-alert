@@ -9,25 +9,21 @@ from retell_client import make_retell_call
 
 app = FastAPI()
 
-# COUNTRY_CODE is now in bustrax_client.py
-# COUNTRY_CODE = os.getenv("COUNTRY_CODE", "52") # REMOVED: Now in bustrax_client.py
-
+# COUNTRY_CODE is now in bustrax_client.py, no need to define here
+# COUNTRY_CODE = os.getenv("COUNTRY_CODE", "52") # REMOVED
 
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "GlobalVoice API is running."}
 
-
-# REMOVED: format_number function, now in bustrax_client.py
-# def format_number(phone: str) -> str:
-#     # ... (removed)
-
+# The format_number function has been moved to bustrax_client.py
+# REMOVED: def format_number(phone: str) -> str:
+#             ...
 
 class TriggerResponse(BaseModel):
     checked: int
     triggered: int
     errors: list[str]
-
 
 @app.post("/trigger-alarm", response_model=TriggerResponse)
 async def trigger_alarm():
@@ -88,6 +84,9 @@ async def trigger_alarm():
             (fin_kpi_val is not None and fin_kpi_val < -9)
             or ("ini" in err_txt)
             or ("Verificar" in status_txt)
+            # You can add 'or True' here temporarily for testing any alarm,
+            # but remember to remove it for production:
+            # or True
         )
 
         if is_red:
@@ -95,6 +94,14 @@ async def trigger_alarm():
             # 4) Format phone and trigger Retell
             phone = format_number(alarm.get("cellphone", ""))
             driver = alarm.get("driver name", "Unknown") # Corrected key from driver_name to "driver name"
+
+            # --- FOR TESTING ONLY: OVERRIDE PHONE NUMBER ---
+            # This block is correctly placed INSIDE the 'if is_red:' condition
+            TEST_PHONE_NUMBER = os.getenv("RETELL_TEST_PHONE_NUMBER", None)
+            if TEST_PHONE_NUMBER:
+                print(f"DEBUG: Overriding driver phone ({phone}) with test number: {TEST_PHONE_NUMBER}")
+                phone = format_number(TEST_PHONE_NUMBER) # Ensure it's formatted
+            # --- END TEST OVERRIDE ---
 
             if not phone:
                 errors.append(f"Missing or invalid phone number for driver {driver}.")
