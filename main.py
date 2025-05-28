@@ -1,5 +1,6 @@
 import os
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from bustrax_client import get_bustrax_token, get_route_tracking
 from retell_client import make_retell_call
@@ -15,10 +16,17 @@ async def root():
 
 
 def format_number(phone: str) -> str:
-    p = phone.strip()
+    """
+    Normalize a Mexican phone number to E.164 with +52.
+    Strips spaces/dashes, removes leading zeros, prepends +52 if missing.
+    """
+    p = phone.strip().replace(" ", "").replace("-", "")
     if not p.startswith("+"):
+        # remove leading zeros
+        p = p.lstrip("0")
+        # prepend country code
         if not p.startswith(COUNTRY_CODE):
-            p = COUNTRY_CODE + p.lstrip("0")
+            p = COUNTRY_CODE + p
         p = "+" + p
     return p
 
@@ -31,49 +39,55 @@ class TriggerResponse(BaseModel):
 
 @app.post("/trigger-alarm", response_model=TriggerResponse)
 async def trigger_alarm():
-    # 1) authenticate
     try:
+        # 1) Authenticate with Bustrax
         token = await get_bustrax_token()
     except Exception as e:
-        raise HTTPException(500, f"Auth failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Auth failed: {e}")
 
-    # 2) fetch tracking (API returns a list)
     try:
+        # 2) Fetch route-tracking data (returns a list)
         raw = await get_route_tracking(token)
     except Exception as e:
-        raise HTTPException(500, f"Tracking failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Tracking failed: {e}")
 
-    # handle both list‐and‐dict responses
+    # 3) Normalize to a list of alarms
     alarms = raw if isinstance(raw, list) else raw.get("data", [])
-
     checked = 0
     triggered = 0
     errors: list[str] = []
 
+    # 4) Evaluate each alarm for "red" conditions
     for alarm in alarms:
         checked += 1
 
-        fin_kpi    = alarm.get("fin_kpi", 0)
-        err_txt    = alarm.get("error", "")
-        status_txt = alarm.get("status", "")
+        # Safely parse fin_kpi
+        try:
+            fin_kpi_val = float(alarm.get("fin_kpi", 0))
+        except (TypeError, ValueError):
+            fin_kpi_val = None
 
-        # red‐alarm conditions
+        err_txt    = alarm.get("error", "") or ""
+        status_txt = alarm.get("status", "") or ""
+
         is_red = (
-            (isinstance(fin_kpi, (int, float)) and fin_kpi < -9)
+            (fin_kpi_val is not None and fin_kpi_val < -9)
             or ("ini" in err_txt)
             or ("Verificar" in status_txt)
         )
+
         if not is_red:
             continue
 
-        # format and call
+        # 5) Format phone and trigger Retell
         phone  = format_number(alarm.get("cellphone", ""))
         driver = alarm.get("driver_name", "Unknown")
 
         try:
-            await make_retell_call(to_number=phone, metadata={"driver_name": driver})
+            await make_retell_call(to_number=phone, driver_name=driver)
             triggered += 1
         except Exception as e:
             errors.append(f"Retell failed for {phone}: {e}")
 
+    # 6) Return summary
     return {"checked": checked, "triggered": triggered, "errors": errors}
