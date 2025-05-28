@@ -31,41 +31,49 @@ class TriggerResponse(BaseModel):
 
 @app.post("/trigger-alarm", response_model=TriggerResponse)
 async def trigger_alarm():
+    # 1) authenticate
+    try:
+        token = await get_bustrax_token()
+    except Exception as e:
+        raise HTTPException(500, f"Auth failed: {e}")
+
+    # 2) fetch tracking (API returns a list)
+    try:
+        raw = await get_route_tracking(token)
+    except Exception as e:
+        raise HTTPException(500, f"Tracking failed: {e}")
+
+    # handle both list‐and‐dict responses
+    alarms = raw if isinstance(raw, list) else raw.get("data", [])
+
     checked = 0
     triggered = 0
     errors: list[str] = []
 
-    # 1) Auth
-    try:
-        token = await get_bustrax_token()
-    except Exception as e:
-        raise HTTPException(500, detail=f"Auth failed: {e}")
-
-    # 2) Tracking
-    try:
-        tracking = await get_route_tracking(token)
-    except Exception as e:
-        raise HTTPException(500, detail=f"Tracking failed: {e}")
-
-    # 3) Check each record for “red” and dial
-    for alarm in tracking.get("data", []):
+    for alarm in alarms:
         checked += 1
-        fin_kpi   = alarm.get("fin_kpi", 0)
-        err_txt   = alarm.get("error", "")
-        status_txt= alarm.get("status", "")
 
+        fin_kpi    = alarm.get("fin_kpi", 0)
+        err_txt    = alarm.get("error", "")
+        status_txt = alarm.get("status", "")
+
+        # red‐alarm conditions
         is_red = (
             (isinstance(fin_kpi, (int, float)) and fin_kpi < -9)
             or ("ini" in err_txt)
             or ("Verificar" in status_txt)
         )
-        if is_red:
-            phone  = format_number(alarm.get("cellphone", ""))
-            driver = alarm.get("driver_name", "Unknown")
-            try:
-                await make_retell_call(to_number=phone, metadata={"driver_name": driver})
-                triggered += 1
-            except Exception as e:
-                errors.append(f"Retell failed for {phone}: {e}")
+        if not is_red:
+            continue
+
+        # format and call
+        phone  = format_number(alarm.get("cellphone", ""))
+        driver = alarm.get("driver_name", "Unknown")
+
+        try:
+            await make_retell_call(to_number=phone, metadata={"driver_name": driver})
+            triggered += 1
+        except Exception as e:
+            errors.append(f"Retell failed for {phone}: {e}")
 
     return {"checked": checked, "triggered": triggered, "errors": errors}
