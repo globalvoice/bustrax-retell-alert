@@ -60,11 +60,14 @@ def mark_uncallable_alarm(conn, alarm_id, reason, driver, car, route_desc, start
         cur.execute("""
             INSERT INTO uncallable_alarms (alarm_id, reason, driver, car, route_desc, start_time, logged_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (alarm_id) DO NOTHING; -- <--- ADD THIS LINE
+            ON CONFLICT (alarm_id) DO NOTHING;
         """, (alarm_id, reason, driver, car, route_desc, start_time, datetime.now()))
         conn.commit()
 
 # --- Retell.ai Call Function ---
+# This function is no longer strictly needed for formatting the *to_number*
+# if we're always using a pre-formatted temporary number.
+# However, keeping it doesn't hurt and might be useful if you revert.
 def format_number(number):
     if number and len(number) == 10:
         return "+1" + number
@@ -159,10 +162,15 @@ async def trigger_alarm():
     # --- Process Alarms and Make Calls ---
     retell_agent_id = os.environ.get("RETELL_AGENT_ID")
     retell_from_number = os.environ.get("RETELL_FROM_NUMBER")
-    retell_test_phone_number = os.environ.get("RETELL_TEST_PHONE_NUMBER")
+    retell_test_phone_number = os.environ.get("RETELL_TEST_PHONE_NUMBER") # This is crucial now!
 
-    if not all([retell_agent_id, retell_from_number]):
-        raise HTTPException(status_code=500, detail="Retell.ai credentials missing")
+    # Ensure all necessary Retell.ai environment variables are set, including the test number
+    if not all([retell_agent_id, retell_from_number, retell_test_phone_number]):
+        missing_vars = []
+        if not retell_agent_id: missing_vars.append("RETELL_AGENT_ID")
+        if not retell_from_number: missing_vars.append("RETELL_FROM_NUMBER")
+        if not retell_test_phone_number: missing_vars.append("RETELL_TEST_PHONE_NUMBER")
+        raise HTTPException(status_code=500, detail=f"Missing Retell.ai environment variables: {', '.join(missing_vars)}")
 
     successful_calls = 0
     total_potential_alarms = 0
@@ -171,7 +179,7 @@ async def trigger_alarm():
     try:
         conn = get_db_connection()
         create_processed_alarms_table(conn)
-        create_uncallable_alarms_table(conn) # NEW: Call to create the uncallable alarms table
+        create_uncallable_alarms_table(conn)
 
         for alarm in raw_tracking_data:
             total_potential_alarms += 1
@@ -215,22 +223,20 @@ async def trigger_alarm():
                 trip_id = alarm.get("trip", "Unknown Trip ID")
                 start_time = alarm.get("start_time", "Unknown Start Time")
 
-                to_number_raw = alarm.get("cellphone")
-                to_number = format_number(to_number_raw) # This will return None if the number is invalid/null
+                # --- START MODIFIED LOGIC: ALWAYS USE TEMPORARY NUMBER ---
+                to_number = retell_test_phone_number # Direct assignment to the temporary number
 
-                # MODIFIED LOGIC: Check if to_number is None and handle it
-                if not to_number:
-                    print(f" ALERT: Cannot make call for trip {alarm_id}. Missing or invalid cellphone number: '{to_number_raw}'. Logging uncallable alarm.")
-                    mark_uncallable_alarm(conn, alarm_id, "Missing/Invalid Cellphone Number", driver, car, route_desc, start_time) # NEW: Record uncallable alarm
-                    continue # NEW: Skip making the call for this alarm, move to the next
-                else:
-                    print(f"Using driver's cellphone ({to_number}) for trip {alarm_id}.")
+                print(f"Using temporary number ({to_number}) for trip {alarm_id}.")
+                # The previous logic to check for missing/invalid driver cellphone
+                # is removed here because we are explicitly using the temp number.
+                # If retell_test_phone_number itself were ever None, the initial check above handles it.
+                # --- END MODIFIED LOGIC ---
 
                 print(f"Attempting Retell.ai call for trip {alarm_id} (Driver: {driver}, Car: {car}, Route: {route_desc})")
                 try:
                     make_retell_call(
                         from_number=retell_from_number,
-                        to_number=to_number,
+                        to_number=to_number, # This now always receives the temporary number
                         agent_id=retell_agent_id,
                         driver_name=driver,
                         car_number=car,
@@ -246,6 +252,9 @@ async def trigger_alarm():
                     print(f"Call initiated and alarm {alarm_id} marked as processed.")
                 except Exception as call_e:
                     print(f"Error making Retell.ai call for trip {alarm_id}: {call_e}")
+                    # You might want to log this call failure as an uncallable alarm as well,
+                    # if the call to the *temporary* number fails.
+                    mark_uncallable_alarm(conn, alarm_id, f"Retell.ai call to temp number failed: {call_e}", driver, car, route_desc, start_time)
             else:
                 print(f"No alarm condition met for trip {alarm_id}. Status: fin_kpi={fin_kpi}, error='{error_status}', status='{general_status}'")
 
