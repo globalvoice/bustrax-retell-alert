@@ -11,7 +11,7 @@ load_dotenv()
 
 app = FastAPI()
 
-# --- Database Functions (Remain largely the same) ---
+# --- Database Functions ---
 def get_db_connection():
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
@@ -39,9 +39,32 @@ def mark_alarm_processed(conn, alarm_id):
                     (alarm_id, datetime.now()))
         conn.commit()
 
-# --- Retell.ai Call Function (Remains the same for now, but needs crucial fix - see below) ---
+# NEW: Functions for uncallable alarms
+def create_uncallable_alarms_table(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS uncallable_alarms (
+                alarm_id TEXT PRIMARY KEY,
+                reason TEXT,
+                driver TEXT,
+                car TEXT,
+                route_desc TEXT,
+                start_time TEXT,
+                logged_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+def mark_uncallable_alarm(conn, alarm_id, reason, driver, car, route_desc, start_time):
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO uncallable_alarms (alarm_id, reason, driver, car, route_desc, start_time, logged_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (alarm_id, reason, driver, car, route_desc, start_time, datetime.now()))
+        conn.commit()
+
+# --- Retell.ai Call Function ---
 def format_number(number):
-    # Your existing number formatting logic
     if number and len(number) == 10:
         return "+1" + number
     elif number and number.startswith("+"):
@@ -49,7 +72,6 @@ def format_number(number):
     return None
 
 def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
-    # Your existing Retell.ai call logic
     api_key = os.environ.get("RETELL_API_KEY")
     if not api_key:
         raise ValueError("RETELL_API_KEY environment variable is not set.")
@@ -63,10 +85,10 @@ def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
         "from_number": from_number,
         "to_number": to_number,
         "agent_id": agent_id,
-        "retell_llm_dynamic_variables": agent_parameters # THIS IS THE CRITICAL CHANGE
+        "retell_llm_dynamic_variables": agent_parameters
     }
-    # Add a print statement for debugging the payload - keep this for now
-    print(f"DEBUG: Retell Payload: {payload}") # Will now show correct structure
+
+    print(f"DEBUG: Retell Payload: {payload}")
 
     try:
         response = requests.post(url, headers=headers, json=payload)
@@ -80,28 +102,16 @@ def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
             print(f"Response content: {e.response.text}")
         raise # Re-raise the exception after logging
 
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status() # Raise an exception for bad status codes
-        response_data = response.json()
-        print(f"Retell.ai call initiated successfully: {response_data}")
-        return response_data
-    except requests.exceptions.RequestException as e:
-        print(f"Error initiating Retell.ai call: {e}")
-        if e.response:
-            print(f"Response content: {e.response.text}")
-        raise # Re-raise the exception after logging
 
+@app.post("/trigger-alarm")
+async def trigger_alarm():
+    print("Received request to trigger alarms.")
 
-@app.post("/trigger-alarm") # <-- FastAPI route decorator
-async def trigger_alarm(): # <-- FastAPI functions are often async
-    print("Received request to trigger alarms.") # Use print or proper FastAPI logging
     # --- Authenticate with Bustrax API ---
     bustrax_username = os.environ.get("BUSTRAX_USERNAME")
     bustrax_password = os.environ.get("BUSTRAX_PASSWORD")
 
     if not bustrax_username or not bustrax_password:
-        # Use HTTPException for FastAPI
         raise HTTPException(status_code=500, detail="Bustrax credentials missing")
 
     auth_url = f"https://w2.bustrax.io/wp-admin/ajax-auth.php?action=login&username={bustrax_username}&password={bustrax_password}&version=2.0"
@@ -109,7 +119,7 @@ async def trigger_alarm(): # <-- FastAPI functions are often async
         auth_response = requests.get(auth_url)
         auth_response.raise_for_status()
         auth_data = auth_response.text.split(',')
-        bustrax_token = auth_data[3].strip() # <--- This was changed from auth_data[2] to auth_data[3]
+        bustrax_token = auth_data[3].strip()
         print(f"Bustrax authentication successful. Token obtained: {bustrax_token}")
     except requests.exceptions.RequestException as e:
         print(f"Error authenticating with Bustrax: {e}")
@@ -117,7 +127,7 @@ async def trigger_alarm(): # <-- FastAPI functions are often async
 
     # --- Fetch Route Tracking Data ---
     tracking_endpoint = "https://api.bustrax.io/engine/get_json.php"
-    bustrax_bunit = os.environ.get("BUSTRAX_BUNIT", "lip_vdm") # Default or set as env var
+    bustrax_bunit = os.environ.get("BUSTRAX_BUNIT", "lip_vdm")
 
     tracking_params = {
         "data[iuser]": bustrax_username,
@@ -160,6 +170,7 @@ async def trigger_alarm(): # <-- FastAPI functions are often async
     try:
         conn = get_db_connection()
         create_processed_alarms_table(conn)
+        create_uncallable_alarms_table(conn) # NEW: Call to create the uncallable alarms table
 
         for alarm in raw_tracking_data:
             total_potential_alarms += 1
@@ -204,10 +215,13 @@ async def trigger_alarm(): # <-- FastAPI functions are often async
                 start_time = alarm.get("start_time", "Unknown Start Time")
 
                 to_number_raw = alarm.get("cellphone")
-                to_number = format_number(to_number_raw) if to_number_raw else retell_test_phone_number
+                to_number = format_number(to_number_raw) # This will return None if the number is invalid/null
 
-                if to_number == retell_test_phone_number:
-                    print(f"Using test phone number ({retell_test_phone_number}) for trip {alarm_id} due to missing/invalid cellphone.")
+                # MODIFIED LOGIC: Check if to_number is None and handle it
+                if not to_number:
+                    print(f" ALERT: Cannot make call for trip {alarm_id}. Missing or invalid cellphone number: '{to_number_raw}'. Logging uncallable alarm.")
+                    mark_uncallable_alarm(conn, alarm_id, "Missing/Invalid Cellphone Number", driver, car, route_desc, start_time) # NEW: Record uncallable alarm
+                    continue # NEW: Skip making the call for this alarm, move to the next
                 else:
                     print(f"Using driver's cellphone ({to_number}) for trip {alarm_id}.")
 
