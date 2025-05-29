@@ -60,6 +60,7 @@ def mark_uncallable_alarm(conn, alarm_id, reason, driver, car, route_desc, start
         cur.execute("""
             INSERT INTO uncallable_alarms (alarm_id, reason, driver, car, route_desc, start_time, logged_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (alarm_id) DO NOTHING; -- <--- ADD THIS LINE
         """, (alarm_id, reason, driver, car, route_desc, start_time, datetime.now()))
         conn.commit()
 
