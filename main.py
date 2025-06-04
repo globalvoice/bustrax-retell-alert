@@ -55,13 +55,13 @@ def create_uncallable_alarms_table(conn):
         """)
         conn.commit()
 
-def mark_uncallable_alarm(conn, alarm_id, reason, driver, car, route_desc, start_time):
+def mark_uncallable_alarm(conn, alarm_id, reason, driver, car, route_desc, start_time,cellphone):
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO uncallable_alarms (alarm_id, reason, driver, car, route_desc, start_time, logged_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO uncallable_alarms (alarm_id, reason, driver, car, route_desc, start_time, cellphone, logged_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (alarm_id) DO NOTHING;
-        """, (alarm_id, reason, driver, car, route_desc, start_time, datetime.now()))
+        """, (alarm_id, reason, driver, car, route_desc, start_time, cellphone, datetime.now()))
         conn.commit()
 
 # --- Retell.ai Call Function ---
@@ -257,7 +257,7 @@ async def trigger_alarm():
                 if not to_number:
                     # If the number couldn't be formatted, log it and mark as uncallable
                     print(f"🚨 ALERT: Skipping call for trip {alarm_id}: Invalid or unformattable cellphone number '{driver_cellphone}' for driver '{driver}'. Logging uncallable alarm.")
-                    mark_uncallable_alarm(conn, alarm_id, "Invalid/Unformattable Cellphone", driver, car, route_desc, start_time)
+                    mark_uncallable_alarm(conn, alarm_id, "Invalid/Unformattable Cellphone", driver, car, route_desc, start_time,driver_cellphone)
                     continue # Skip to the next alarm if number is invalid/uncallable
                 
                 print(f"Attempting Retell.ai call for trip {alarm_id} to driver {driver} at {to_number} (Car: {car}, Route: {route_desc})")
@@ -283,7 +283,7 @@ async def trigger_alarm():
                 except Exception as call_e:
                     print(f"Error making Retell.ai call for trip {alarm_id}: {call_e}")
                     # Log the failure reason to the uncallable_alarms table
-                    mark_uncallable_alarm(conn, alarm_id, f"Retell.ai call failed: {call_e}", driver, car, route_desc, start_time)
+                    mark_uncallable_alarm(conn, alarm_id, f"Retell.ai call failed: {call_e}", driver, car, route_desc, start_time,to_number)
             else:
                 print(f"No alarm condition met for trip {alarm_id}. Status: fin_kpi={fin_kpi}, error='{error_status}', status='{general_status}'")
 
