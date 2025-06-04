@@ -65,15 +65,41 @@ def mark_uncallable_alarm(conn, alarm_id, reason, driver, car, route_desc, start
         conn.commit()
 
 # --- Retell.ai Call Function ---
-# This function is no longer strictly needed for formatting the *to_number*
-# if we're always using a pre-formatted temporary number.
-# However, keeping it doesn't hurt and might be useful if you revert.
+# MODIFIED: Updated format_number to handle Mexican numbers
 def format_number(number):
-    if number and len(number) == 10:
-        return "+1" + number
-    elif number and number.startswith("+"):
-        return number
+    if not number:
+        return None
+
+    # Remove any non-digit characters first, except for a leading '+'
+    cleaned_number = str(number).strip()
+    
+    # If it already starts with '+', assume it's correctly formatted E.164
+    if cleaned_number.startswith('+'):
+        # Further validation could be added here (e.g., check length after country code)
+        return cleaned_number
+    
+    # Remove all non-digits for consistent processing
+    digits_only = ''.join(filter(str.isdigit, cleaned_number))
+
+    if not digits_only:
+        return None
+
+    # Mexican numbers typically have 10 digits after the country code.
+    # The country code for Mexico is 52.
+    # Case 1: Number already starts with '52' and is 12 digits long (52 + 10 digits)
+    if digits_only.startswith('52') and len(digits_only) == 12:
+        return "+" + digits_only
+    
+    # Case 2: Number is 10 digits long (e.g., "5550064174" - missing '52')
+    # Assume these are Mexican numbers missing the +52 prefix
+    if len(digits_only) == 10:
+        return "+52" + digits_only
+    
+    # Fallback: If none of the specific Mexican patterns match, return None
+    # This means the number is not in an expected format for calling
+    print(f"WARNING: Could not format number '{number}'. Resulted in '{digits_only}'. Returning None.")
     return None
+
 
 def make_retell_call(from_number, to_number, agent_id, **agent_parameters):
     api_key = os.environ.get("RETELL_API_KEY")
@@ -162,14 +188,13 @@ async def trigger_alarm():
     # --- Process Alarms and Make Calls ---
     retell_agent_id = os.environ.get("RETELL_AGENT_ID")
     retell_from_number = os.environ.get("RETELL_FROM_NUMBER")
-    retell_test_phone_number = os.environ.get("RETELL_TEST_PHONE_NUMBER") # This is crucial now!
+    # REMOVED: retell_test_phone_number is no longer needed for live calls
 
-    # Ensure all necessary Retell.ai environment variables are set, including the test number
-    if not all([retell_agent_id, retell_from_number, retell_test_phone_number]):
+    # Ensure necessary Retell.ai environment variables are set (test number is no longer required here)
+    if not all([retell_agent_id, retell_from_number]):
         missing_vars = []
         if not retell_agent_id: missing_vars.append("RETELL_AGENT_ID")
         if not retell_from_number: missing_vars.append("RETELL_FROM_NUMBER")
-        if not retell_test_phone_number: missing_vars.append("RETELL_TEST_PHONE_NUMBER")
         raise HTTPException(status_code=500, detail=f"Missing Retell.ai environment variables: {', '.join(missing_vars)}")
 
     successful_calls = 0
@@ -223,20 +248,25 @@ async def trigger_alarm():
                 trip_id = alarm.get("trip", "Unknown Trip ID")
                 start_time = alarm.get("start_time", "Unknown Start Time")
 
-                # --- START MODIFIED LOGIC: ALWAYS USE TEMPORARY NUMBER ---
-                to_number = retell_test_phone_number # Direct assignment to the temporary number
+                # --- START MODIFIED LOGIC FOR LIVE DRIVER CALLS ---
+                driver_cellphone = alarm.get("cellphone") # Get the raw cellphone number from Bustrax
+                
+                # Format the driver's cellphone number using the updated format_number function
+                to_number = format_number(driver_cellphone)
 
-                print(f"Using temporary number ({to_number}) for trip {alarm_id}.")
-                # The previous logic to check for missing/invalid driver cellphone
-                # is removed here because we are explicitly using the temp number.
-                # If retell_test_phone_number itself were ever None, the initial check above handles it.
-                # --- END MODIFIED LOGIC ---
+                if not to_number:
+                    # If the number couldn't be formatted, log it and mark as uncallable
+                    print(f"🚨 ALERT: Skipping call for trip {alarm_id}: Invalid or unformattable cellphone number '{driver_cellphone}' for driver '{driver}'. Logging uncallable alarm.")
+                    mark_uncallable_alarm(conn, alarm_id, "Invalid/Unformattable Cellphone", driver, car, route_desc, start_time)
+                    continue # Skip to the next alarm if number is invalid/uncallable
+                
+                print(f"Attempting Retell.ai call for trip {alarm_id} to driver {driver} at {to_number} (Car: {car}, Route: {route_desc})")
+                # --- END MODIFIED LOGIC FOR LIVE DRIVER CALLS ---
 
-                print(f"Attempting Retell.ai call for trip {alarm_id} (Driver: {driver}, Car: {car}, Route: {route_desc})")
                 try:
                     make_retell_call(
                         from_number=retell_from_number,
-                        to_number=to_number, # This now always receives the temporary number
+                        to_number=to_number, # This will now be the formatted driver's number
                         agent_id=retell_agent_id,
                         driver_name=driver,
                         car_number=car,
@@ -252,9 +282,8 @@ async def trigger_alarm():
                     print(f"Call initiated and alarm {alarm_id} marked as processed.")
                 except Exception as call_e:
                     print(f"Error making Retell.ai call for trip {alarm_id}: {call_e}")
-                    # You might want to log this call failure as an uncallable alarm as well,
-                    # if the call to the *temporary* number fails.
-                    mark_uncallable_alarm(conn, alarm_id, f"Retell.ai call to temp number failed: {call_e}", driver, car, route_desc, start_time)
+                    # Log the failure reason to the uncallable_alarms table
+                    mark_uncallable_alarm(conn, alarm_id, f"Retell.ai call failed: {call_e}", driver, car, route_desc, start_time)
             else:
                 print(f"No alarm condition met for trip {alarm_id}. Status: fin_kpi={fin_kpi}, error='{error_status}', status='{general_status}'")
 
